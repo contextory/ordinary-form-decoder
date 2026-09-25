@@ -23,7 +23,7 @@ from xml.etree import ElementTree as ET
 CHAIN_END = 0x7FFFFFFF
 HEADER_BYTES = 16
 RLM_NAMESPACE = "http://v8.1c.ru/8.3/xcf/logform"
-SCRIPT_VERSION = "0.6.2"
+SCRIPT_VERSION = "0.6.3"
 EVENT_SCHEMA_VERSION = 1
 EVENT_ANALYZER_VERSION = 8
 EVENT_DIRECTORY = "ordinary-forms"
@@ -90,6 +90,13 @@ class EventInfo:
     name: str
     handler: str
     resolution: str
+
+
+@dataclass(frozen=True)
+class CommandInfo:
+    name: str
+    handler: str
+    source_id: str
 
 
 @dataclass(frozen=True)
@@ -503,6 +510,56 @@ def extract_form_events(
     return extract_events(form_root[4], "Form", "", event_map or {})
 
 
+def extract_command_bar_actions(form_root: object) -> list[CommandInfo]:
+    """Read explicit BSL actions and their button names from command bars."""
+    commands: list[CommandInfo] = []
+    for record in walk_lists(form_root):
+        if not is_control_record(record) or CONTROL_TYPE_BY_GUID[record[0].lower()] != "CommandBar":
+            continue
+        if len(record) < 3 or not isinstance(record[2], list) or len(record[2]) < 2:
+            continue
+        info = record[2][1]
+        if not isinstance(info, list) or len(info) <= 7 or not isinstance(info[7], list):
+            continue
+        items = info[7]
+        if len(items) < 6 or items[0] != "5" or not isinstance(items[4], str) or not items[4].isdigit():
+            continue
+        action_end = 5 + int(items[4])
+        if action_end >= len(items) or not isinstance(items[action_end], str) or not items[action_end].isdigit():
+            continue
+        group_end = action_end + 1 + int(items[action_end])
+        if group_end > len(items):
+            continue
+        names_by_action: dict[str, list[str]] = {}
+        for group in items[action_end + 1:group_end]:
+            if not isinstance(group, list) or len(group) < 5 or group[0] != "5":
+                continue
+            if not isinstance(group[4], str) or not group[4].isdigit():
+                continue
+            for index in range(int(group[4])):
+                position = 5 + index * 2
+                if position + 1 >= len(group):
+                    break
+                action_id, button = group[position:position + 2]
+                if isinstance(action_id, str) and isinstance(button, list) and len(button) > 1:
+                    if isinstance(button[1], str) and button[1]:
+                        names_by_action.setdefault(action_id, []).append(button[1])
+        bar_name = control_metadata_name(record)
+        for action in items[5:action_end]:
+            if not isinstance(action, list) or len(action) < 5 or not isinstance(action[1], str):
+                continue
+            payload = action[4]
+            if not isinstance(payload, list) or len(payload) < 2 or payload[0] != "3":
+                continue
+            handler = payload[1]
+            if not isinstance(handler, str) or not handler or is_uuid(handler):
+                continue
+            for button_name in dict.fromkeys(names_by_action.get(action[1], [handler])):
+                name = f"{bar_name}.{button_name}" if bar_name else button_name
+                commands.append(CommandInfo(name=name, handler=handler, source_id=action[1]))
+    return commands
+
+
 def extract_page_name(form_root: object) -> str:
     if not isinstance(form_root, list) or len(form_root) < 2 or not isinstance(form_root[1], list):
         return ""
@@ -627,6 +684,12 @@ def write_rlm_form(
             children = ET.SubElement(page, xml_name("ChildItems"))
         for control in controls:
             append_control(children, control)
+    commands = extract_command_bar_actions(form_root)
+    if commands:
+        commands_node = ET.SubElement(root, xml_name("Commands"))
+        for command in commands:
+            item = ET.SubElement(commands_node, xml_name("Command"), {"name": command.name, "sourceId": command.source_id})
+            ET.SubElement(item, xml_name("Action")).text = command.handler
     output.mkdir(parents=True, exist_ok=True)
     ET.indent(root, space="  ")
     ET.ElementTree(root).write(output / "Form.xml", encoding="utf-8", xml_declaration=True)
@@ -638,7 +701,8 @@ def write_rlm_form(
         "controls": control_count(controls),
         "tables": sum(1 for control in flatten_controls(controls) if control.type == "Table"),
         "columns": column_count(controls),
-        "handlers": event_count(controls) + len(form_events),
+        "handlers": event_count(controls) + len(form_events) + len(commands),
+        "commands": len(commands),
     }
 
 
@@ -1498,7 +1562,7 @@ def convert_tree(
     output = output.resolve()
     totals = {
         "forms_processed": 0, "forms_skipped": 0, "forms_failed": 0,
-        "attributes": 0, "controls": 0, "tables": 0, "columns": 0, "handlers": 0,
+        "attributes": 0, "controls": 0, "tables": 0, "columns": 0, "handlers": 0, "commands": 0,
     }
     changed_paths = changed_files_in_git(source)
     totals["git_mode"] = changed_paths is not None
@@ -1525,7 +1589,7 @@ def convert_tree(
                 print(f"ERROR {form_bin}: {error}")
             continue
         totals["forms_processed"] += 1
-        for name in ("attributes", "controls", "tables", "columns", "handlers"):
+        for name in ("attributes", "controls", "tables", "columns", "handlers", "commands"):
             totals[name] += summary[name]
         if verbose:
             print(f"OK {form_bin} -> {destination / 'Form.xml'}")

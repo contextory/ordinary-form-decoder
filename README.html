@@ -18,13 +18,13 @@
 <body>
 <main>
 	<h1>ordinary_form_rlm.py</h1>
-	<p>Версия 0.6.2. Автономный Python-скрипт читает обычные формы 1С из <code>Form.bin</code> и создаёт представление для индексации RLM:</p>
+	<p>Версия 0.6.3. Автономный Python-скрипт читает обычные формы 1С из <code>Form.bin</code> и создаёт представление для индексации RLM:</p>
 	<pre><code>Form.xml
 Form\Module.bsl</code></pre>
 	<div class="note">Скрипт не изменяет <code>Form.bin</code> и использует только стандартную библиотеку Python. Для работы копируйте коллегам всю папку: скрипт, словарь событий, <code>README.html</code>, <code>AUTHORS.md</code> и <code>LICENSE</code>.</div>
 	<h2>Что переносится в Form.xml</h2>
 	<p>Элементы распознаются по GUID бинарной записи. В том числе отдельно распознаётся <code>PictureDecoration</code>, поэтому его обработчик нажатия не попадает в события содержащей его панели. Для <code>Panel</code> сохраняются все страницы, включая пустые. Принадлежность элемента странице берётся из индекса страницы в layout-записи <code>Form.bin</code>; элементы без такого индекса остаются непосредственными дочерними элементами панели.</p>
-	<p>Кнопки и вложенные меню <code>CommandBar</code> пока не проецируются: сама командная панель присутствует в XML, но её состав не восстанавливается по совпадению имён. Это намеренное ограничение, пока связь панели с бинарным деревом команд не подтверждена для разных форматов платформы.</p>
+	<p>Собственные действия кнопок <code>CommandBar</code>, в том числе во вложенных группах, попадают в <code>Commands</code>. Имя кнопки связывается с записью действия по UUID, а обработчик берётся только из бинарной записи. Встроенные команды платформы без BSL-обработчика в <code>Commands</code> не добавляются.</p>
 
 	<h2>Требования</h2>
 	<ul>
@@ -201,7 +201,7 @@ python .\ordinary_form_rlm.py --help</code></pre>
 		<li><code>forms_skipped</code> — пропущено как актуальные;</li>
 		<li><code>forms_failed</code> — завершилось ошибкой;</li>
 		<li><code>event_mappings</code>, <code>unresolved_events</code> — размер карты и количество идентификаторов для проверки;</li>
-		<li><code>attributes</code>, <code>controls</code>, <code>tables</code>, <code>columns</code>, <code>handlers</code> — найденные элементы.</li>
+		<li><code>attributes</code>, <code>controls</code>, <code>tables</code>, <code>columns</code>, <code>commands</code>, <code>handlers</code> — найденные элементы и обработчики.</li>
 	</ul>
 
 	<h2>Коды завершения</h2>

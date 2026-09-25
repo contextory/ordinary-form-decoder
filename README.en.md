@@ -1,8 +1,10 @@
 # Ordinary Form Decoder
 
-An independent, read-only decoder of 1C ordinary forms for RLM indexing. It reads `Form.bin` and produces `Form.xml` plus `Form/Module.bsl`. It does not rebuild binary forms.
+Ordinary forms live in `Form.bin`, while RLM needs their readable structure: controls, attributes, and links to handlers. This script extracts that structure into `Form.xml` and the form module into `Form/Module.bsl`. It leaves the source file untouched and cannot rebuild a binary form.
 
-No package installation is required: use Python 3.10+ and keep `ordinary_form_rlm.py` next to `ordinary-form-events.json`. The detailed guide is [README.html](README.html) (Russian).
+Run it on one form or recursively over an export tree, including external processors and reports. No package installation is needed: use Python 3.10+ and keep `ordinary_form_rlm.py` next to `ordinary-form-events.json`. See the [detailed guide](README.html) (Russian).
+
+If an event type cannot be identified, the XML still retains its known handler and marks the event as unknown. Explicit `CommandBar` actions, including those in nested groups, are matched to button names by UUID; built-in platform commands are not presented as BSL handlers.
 
 ```powershell
 python .\ordinary_form_rlm.py "C:\Work\export\Form.bin" --output "C:\Work\output"
@@ -10,7 +12,7 @@ python .\ordinary_form_rlm.py "C:\Work\export" --recursive --output "C:\Work\out
 python -m unittest discover -s tests
 ```
 
-The event vocabulary is user-editable and may be incomplete. It does not assign numeric event IDs without analysis of the project's forms. A known handler is retained even when its event name cannot be resolved.
+You can extend the event vocabulary for your own forms. It helps identify event names, but numeric IDs are inferred from the project's forms rather than the vocabulary alone.
 
 The implementation is independent of `onec-ordinary-forms`. That project informed format research and served as a comparison oracle; its source code was not used here. Thanks to its author Maxon for the published work.
 

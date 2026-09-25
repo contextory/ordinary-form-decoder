@@ -18,6 +18,7 @@ from ordinary_form_rlm import (
 	convert_form_bin,
 	convert_tree,
 	decode_event_record,
+	extract_command_bar_actions,
 	extract_controls,
 	extract_events,
 	infer_event_mappings,
@@ -59,6 +60,45 @@ def _sample_form_bin(module: bytes, form: bytes = b"{0,0,{0,0,{0}}}") -> bytes:
 
 
 class OrdinaryFormRlmTests(unittest.TestCase):
+	def test_command_bar_actions_follow_button_uuids_across_groups(self) -> None:
+		first_id = "00000000-0000-0000-0000-000000000011"
+		second_id = "00000000-0000-0000-0000-000000000022"
+		built_in_id = "00000000-0000-0000-0000-000000000033"
+		items = [
+			"5", "root", "3", "1", "3",
+			["6", first_id, "1", "event", ["3", "ПроизвольныйОбработчик"], "0"],
+			["6", second_id, "1", "event", ["3", "МенюВложенноеНажатие"], "0"],
+			["6", built_in_id, "1", "event", ["1", "00000000-0000-0000-0000-000000000044"], "0"],
+			"2",
+			["5", "group-a", "4", "0", "2", first_id, ["8", "Пересчитать"], built_in_id, ["8", "Закрыть"]],
+			["5", "group-b", "4", "0", "1", second_id, ["8", "ВложеннаяКоманда"]],
+		]
+		bar = [
+			"e69bf21d-97b2-4f37-86db-675aea9ec2cb", "15",
+			["1", [["0"], "0", "0", "0", "0", "0", "0", items]],
+			["14", "КоманднаяПанель"],
+		]
+
+		commands = extract_command_bar_actions([bar])
+
+		self.assertEqual(
+			[(item.name, item.handler, item.source_id) for item in commands],
+			[
+				("КоманднаяПанель.Пересчитать", "ПроизвольныйОбработчик", first_id),
+				("КоманднаяПанель.ВложеннаяКоманда", "МенюВложенноеНажатие", second_id),
+			],
+		)
+		with tempfile.TemporaryDirectory() as directory:
+			summary = write_rlm_form([bar], b"", Path(directory))
+			root = ET.parse(Path(directory) / "Form.xml").getroot()
+			self.assertEqual(
+				[(item.get("name"), item.findtext("{*}Action")) for item in root.findall("{*}Commands/{*}Command")],
+				[("КоманднаяПанель.Пересчитать", "ПроизвольныйОбработчик"),
+				 ("КоманднаяПанель.ВложеннаяКоманда", "МенюВложенноеНажатие")],
+			)
+			self.assertEqual(summary["commands"], 2)
+			self.assertEqual(summary["handlers"], 2)
+
 	def test_graphical_schema_event_uses_confirmed_platform_id(self) -> None:
 		event = decode_event_record(
 			["0", "e1692cc2-605b-4535-84dd-28440238746c", ["3", "КартаМаршрутаВыбор"]],
