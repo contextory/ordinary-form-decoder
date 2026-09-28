@@ -23,7 +23,7 @@ from xml.etree import ElementTree as ET
 CHAIN_END = 0x7FFFFFFF
 HEADER_BYTES = 16
 RLM_NAMESPACE = "http://v8.1c.ru/8.3/xcf/logform"
-SCRIPT_VERSION = "0.6.3"
+SCRIPT_VERSION = "0.6.4"
 EVENT_SCHEMA_VERSION = 1
 EVENT_ANALYZER_VERSION = 9
 EVENT_DIRECTORY = "ordinary-forms"
@@ -919,6 +919,10 @@ def _voting_policy() -> dict[str, object]:
 
 def load_event_map(project_root: Path) -> dict[tuple[str, str], EventMapping]:
     map_path, _ = _event_paths(project_root)
+    return load_event_map_file(map_path)
+
+
+def load_event_map_file(map_path: Path) -> dict[tuple[str, str], EventMapping]:
     if not map_path.is_file():
         return {}
     payload = json.loads(map_path.read_text(encoding="utf-8-sig"))
@@ -1539,14 +1543,18 @@ def event_mapping_for_source(
     scan_root: Path,
     shared_root: Path | None,
     *,
+    ordinary_forms_dir: Path | None = None,
     force_analysis: bool = False,
     probe_paths: list[Path] | None = None,
 ) -> tuple[EventAnalysisResult, dict[tuple[str, str], EventMapping]]:
+    if ordinary_forms_dir is not None and not (ordinary_forms_dir / EVENT_MAP_FILE).is_file():
+        raise FileNotFoundError(f"Ordinary event map was not found: {ordinary_forms_dir / EVENT_MAP_FILE}")
     analysis = prepare_event_mapping(
         state_root, scan_root, force_analysis=force_analysis, probe_paths=probe_paths,
     )
     shared = load_event_map(shared_root) if shared_root and _event_paths(shared_root)[0].is_file() else {}
-    return analysis, {**shared, **analysis.event_map}
+    explicit = load_event_map_file(ordinary_forms_dir / EVENT_MAP_FILE) if ordinary_forms_dir else {}
+    return analysis, {**shared, **analysis.event_map, **explicit}
 
 
 def convert_tree(
@@ -1555,6 +1563,7 @@ def convert_tree(
     verbose: bool,
     full: bool,
     project_root: Path | None = None,
+    ordinary_forms_dir: Path | None = None,
 ) -> dict[str, int]:
     source = source.resolve()
     output = output.resolve()
@@ -1567,7 +1576,7 @@ def convert_tree(
     form_bins = sorted(source.rglob("Form.bin"), key=lambda path: path.as_posix().casefold())
     state_root, scan_root, shared_root = event_context(source, project_root)
     analysis, event_map = event_mapping_for_source(
-        state_root, scan_root, shared_root, force_analysis=full, probe_paths=form_bins,
+        state_root, scan_root, shared_root, ordinary_forms_dir=ordinary_forms_dir, force_analysis=full, probe_paths=form_bins,
     )
     totals["event_mappings"] = len(event_map)
     totals["unresolved_events"] = analysis.unresolved
@@ -1603,17 +1612,21 @@ def main() -> None:
     parser.add_argument("--full", action="store_true", help="Rebuild all forms, ignoring current RLM output")
     parser.add_argument("--verbose", action="store_true", help="Show one result line per form")
     parser.add_argument("--project-root", help="Project root for a shared event map; arbitrary source trees keep local state")
+    parser.add_argument("--ordinary-forms", help="Read event-map.json from this directory; explicit mappings take precedence and are not modified")
     parser.add_argument("--analyze-events-only", action="store_true", help="Refresh event map without writing RLM forms")
     args = parser.parse_args()
     source = Path(args.source).resolve()
     project_root = Path(args.project_root).resolve() if args.project_root else None
+    ordinary_forms_dir = Path(args.ordinary_forms).resolve() if args.ordinary_forms else None
+    if ordinary_forms_dir and not (ordinary_forms_dir / EVENT_MAP_FILE).is_file():
+        parser.error(f"event-map.json was not found in --ordinary-forms directory: {ordinary_forms_dir}")
     if not args.output and not args.analyze_events_only:
         parser.error("--output is required unless --analyze-events-only is used")
     output = Path(args.output).resolve() if args.output else source
     state_root, scan_root, shared_root = event_context(source, project_root)
     if args.analyze_events_only:
         analysis, event_map = event_mapping_for_source(
-            state_root, scan_root, shared_root, force_analysis=True,
+            state_root, scan_root, shared_root, ordinary_forms_dir=ordinary_forms_dir, force_analysis=True,
         )
         print(
             json.dumps(
@@ -1632,7 +1645,7 @@ def main() -> None:
         if args.recursive:
             parser.error("--recursive requires a source directory")
         analysis, event_map = event_mapping_for_source(
-            state_root, scan_root, shared_root, force_analysis=args.full, probe_paths=[source],
+            state_root, scan_root, shared_root, ordinary_forms_dir=ordinary_forms_dir, force_analysis=args.full, probe_paths=[source],
         )
         if not args.full and not analysis.rebuilt and is_current(source, output):
             print(json.dumps({"forms_processed": 0, "forms_skipped": 1, "forms_failed": 0}, ensure_ascii=False, indent=2))
@@ -1640,7 +1653,7 @@ def main() -> None:
         print(json.dumps(convert_form_bin(source, output, event_map), ensure_ascii=False, indent=2))
         return
     if source.is_dir() and args.recursive:
-        summary = convert_tree(source, output, args.verbose, args.full, project_root)
+        summary = convert_tree(source, output, args.verbose, args.full, project_root, ordinary_forms_dir)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         if summary["forms_failed"]:
             raise SystemExit(1)

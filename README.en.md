@@ -14,6 +14,8 @@ python -m unittest discover -s tests
 
 You can extend the event vocabulary for your own forms. It helps identify event names, but numeric IDs are inferred from the project's forms rather than the vocabulary alone.
 
+For an external processor or report, pass `--ordinary-forms "C:\Work\DemoProject\ordinary-forms"` to reuse an existing `event-map.json`. Those explicit mappings take precedence over local ones; the shared directory is read-only, while local diagnostics remain beside the external export.
+
 The implementation is independent of `onec-ordinary-forms`. That project informed format research and served as a comparison oracle; its source code was not used here. Thanks to its author Maxon for the published work.
 
 Licensed under [MIT](LICENSE). Developed by synklair with contributions from OpenAI Codex; see [AUTHORS.md](AUTHORS.md).

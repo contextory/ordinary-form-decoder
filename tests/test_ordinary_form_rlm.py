@@ -625,6 +625,35 @@ class OrdinaryFormRlmTests(unittest.TestCase):
 			self.assertTrue((external / "ordinary-forms" / "event-map.json").is_file())
 			self.assertEqual(project_map.read_bytes(), before)
 
+	def test_explicit_ordinary_forms_map_is_read_only_and_takes_precedence(self) -> None:
+		with tempfile.TemporaryDirectory() as directory:
+			base = Path(directory)
+			shared = base / "configuration-state" / "ordinary-forms"
+			shared.mkdir(parents=True)
+			shared_map = shared / "event-map.json"
+			shared_map.write_text(json.dumps({
+				"schema_version": 1,
+				"mappings": {"InputField": {"2": {"event_name": "НачалоВыбора", "source": "manual"}}},
+			}, ensure_ascii=False), encoding="utf-8")
+			original = shared_map.read_bytes()
+			external = base / "epf" / "Processor"
+			form = external / "Export" / "Forms" / "Main" / "Ext"
+			form.mkdir(parents=True)
+			body = "{0,{0,{381ed624-9217-4e63-85db-c4c3cb87daae,1,{14,Поле},{2,00000000-0000-0000-0000-000000000001,{3,ПолеПриИзменении}}}},{0,0,{0}},0,0}"
+			module = "Процедура ПолеПриИзменении()\nКонецПроцедуры\n".encode("utf-8")
+			(form / "Form.bin").write_bytes(_sample_form_bin(module, body.encode("utf-8")))
+
+			result = convert_tree(external, external, False, True, ordinary_forms_dir=shared)
+
+			self.assertEqual(result["forms_processed"], 1)
+			self.assertEqual(shared_map.read_bytes(), original)
+			self.assertTrue((external / "ordinary-forms" / "event-map.json").is_file())
+			root = ET.parse(form / "Form.xml").getroot()
+			event = root.find(".//{*}InputField/{*}Events/{*}Event")
+			self.assertIsNotNone(event)
+			self.assertEqual(event.get("name"), "НачалоВыбора")
+			self.assertEqual(event.text, "ПолеПриИзменении")
+
 	def test_recursive_tree_without_project_or_cf(self) -> None:
 		with tempfile.TemporaryDirectory() as directory:
 			root = Path(directory) / "erf" / "Sample"
