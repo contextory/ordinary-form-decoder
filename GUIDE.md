@@ -1,6 +1,6 @@
 # ordinary_form_rlm.py
 
-Версия 0.6.5. Автономный Python-скрипт читает обычные формы 1С из `Form.bin` и создаёт представление для индексации RLM:
+Версия 0.6.5. Автономный Python-скрипт читает обычные формы 1С из `Form.bin` и создаёт представление для индексации [rlm-tools-bsl](https://github.com/Dach-Coin/rlm-tools-bsl):
 
 ```text
 Form.xml
