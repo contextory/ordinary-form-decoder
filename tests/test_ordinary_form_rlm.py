@@ -571,6 +571,25 @@ class OrdinaryFormRlmTests(unittest.TestCase):
 				EventMapping("ОбработкаПроверкиЗаполнения", "manual"),
 			)
 			self.assertEqual(load_event_map(project)[("Form", "70012")].source, "manual")
+			self.assertFalse(unresolved_path.exists())
+
+	def test_review_file_exists_only_while_manual_mapping_is_needed(self) -> None:
+		with tempfile.TemporaryDirectory() as directory:
+			project = Path(directory)
+			configuration = project / "src" / "cf"
+			form = configuration / "Documents" / "D" / "Forms" / "F" / "Ext"
+			form.mkdir(parents=True)
+			(form / "Form.bin").write_bytes(_sample_form_bin(b""))
+			review_path = project / "ordinary-forms" / "unresolved-events.json"
+
+			first = prepare_event_mapping(project, configuration)
+			self.assertEqual(first.unresolved, 0)
+			self.assertFalse(review_path.exists())
+
+			review_path.write_text('{"events": []}', encoding="utf-8")
+			second = prepare_event_mapping(project, configuration)
+			self.assertFalse(second.rebuilt)
+			self.assertFalse(review_path.exists())
 
 	def test_analyzer_upgrade_rebuilds_current_form_outputs(self) -> None:
 		with tempfile.TemporaryDirectory() as directory:
@@ -623,6 +642,7 @@ class OrdinaryFormRlmTests(unittest.TestCase):
 			ET.parse(form / "Form.xml")
 			self.assertEqual((form / "Form" / "Module.bsl").read_bytes(), module)
 			self.assertTrue((external / "ordinary-forms" / "event-map.json").is_file())
+			self.assertFalse((external / "ordinary-forms" / "unresolved-events.json").exists())
 			self.assertEqual(project_map.read_bytes(), before)
 
 	def test_explicit_ordinary_forms_map_is_read_only_and_takes_precedence(self) -> None:
@@ -653,6 +673,31 @@ class OrdinaryFormRlmTests(unittest.TestCase):
 			self.assertIsNotNone(event)
 			self.assertEqual(event.get("name"), "НачалоВыбора")
 			self.assertEqual(event.text, "ПолеПриИзменении")
+
+	def test_shared_map_removes_resolved_entries_from_local_review(self) -> None:
+		with tempfile.TemporaryDirectory() as directory:
+			base = Path(directory)
+			shared = base / "cf" / "ordinary-forms"
+			shared.mkdir(parents=True)
+			(shared / "event-map.json").write_text(json.dumps({
+				"schema_version": 1,
+				"mappings": {"InputField": {"3": {"event_name": "ПриИзменении", "source": "manual"}}},
+			}, ensure_ascii=False), encoding="utf-8")
+			external = base / "epf"
+			form = external / "Forms" / "F" / "Ext"
+			form.mkdir(parents=True)
+			body = "{0,{0,{381ed624-9217-4e63-85db-c4c3cb87daae,1,{14,Поле},{3,00000000-0000-0000-0000-000000000001,{3,ОбработатьПоле}}}},{0,0,{0}},0,0}"
+			module = "Процедура ОбработатьПоле()\nКонецПроцедуры\n".encode("utf-8")
+			(form / "Form.bin").write_bytes(_sample_form_bin(module, body.encode("utf-8")))
+
+			first = convert_tree(external, external, False, True, ordinary_forms_dir=shared)
+			second = convert_tree(external, external, False, False, ordinary_forms_dir=shared)
+
+			self.assertEqual(first["unresolved_events"], 0)
+			self.assertEqual(second["forms_skipped"], 1)
+			self.assertFalse((external / "ordinary-forms" / "unresolved-events.json").exists())
+			root = ET.parse(form / "Form.xml").getroot()
+			self.assertEqual(root.find(".//{*}InputField/{*}Events/{*}Event").get("name"), "ПриИзменении")
 
 	def test_recursive_tree_without_project_or_cf(self) -> None:
 		with tempfile.TemporaryDirectory() as directory:

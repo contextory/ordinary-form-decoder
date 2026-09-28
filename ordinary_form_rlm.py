@@ -23,7 +23,7 @@ from xml.etree import ElementTree as ET
 CHAIN_END = 0x7FFFFFFF
 HEADER_BYTES = 16
 RLM_NAMESPACE = "http://v8.1c.ru/8.3/xcf/logform"
-SCRIPT_VERSION = "0.6.4"
+SCRIPT_VERSION = "0.6.5"
 EVENT_SCHEMA_VERSION = 1
 EVENT_ANALYZER_VERSION = 9
 EVENT_DIRECTORY = "ordinary-forms"
@@ -1442,6 +1442,7 @@ def prepare_event_mapping(
     *,
     force_analysis: bool = False,
     probe_paths: list[Path] | None = None,
+    known_mappings: dict[tuple[str, str], EventMapping] | None = None,
 ) -> EventAnalysisResult:
     map_path, unresolved_path = _event_paths(project_root)
     existing = load_event_map(project_root)
@@ -1458,9 +1459,17 @@ def prepare_event_mapping(
         must_analyze = payload.get("analyzer_version") != EVENT_ANALYZER_VERSION
     if not must_analyze and probe_paths:
         observations = collect_event_observations(probe_paths, configuration_root, project_root)
-        must_analyze = any((item.control_type, item.source_id) not in existing for item in observations)
+        known = known_mappings or {}
+        must_analyze = any((item.control_type, item.source_id) not in existing and (item.control_type, item.source_id) not in known for item in observations)
     if not must_analyze:
-        return EventAnalysisResult(existing, False, 0, 0)
+        unresolved_count = 0
+        if unresolved_path.is_file():
+            previous_review = json.loads(unresolved_path.read_text(encoding="utf-8-sig"))
+            if previous_review.get("events") == []:
+                unresolved_path.unlink()
+            elif isinstance(previous_review.get("events"), list):
+                unresolved_count = len(previous_review["events"])
+        return EventAnalysisResult(existing, False, 0, unresolved_count)
 
     form_bins = sorted(configuration_root.rglob("Form.bin"), key=lambda path: path.as_posix().casefold())
     observations = collect_event_observations(form_bins, configuration_root, project_root)
@@ -1502,19 +1511,22 @@ def prepare_event_mapping(
             "mappings": details,
         },
     )
-    _write_json_atomic(
-        unresolved_path,
-        {
-            "schema_version": EVENT_SCHEMA_VERSION,
-            "analyzer_version": EVENT_ANALYZER_VERSION,
-            "voting_policy": _voting_policy(),
-            "instructions": "Заполните event_name после проверки события в Конфигураторе и повторите обновление.",
-            "analysis_summary": analysis_summary,
-            "events": unresolved,
-            "statistical_outliers": outliers,
-            "ignored_no_procedure_groups": ignored_groups,
-        },
-    )
+    if unresolved:
+        _write_json_atomic(
+            unresolved_path,
+            {
+                "schema_version": EVENT_SCHEMA_VERSION,
+                "analyzer_version": EVENT_ANALYZER_VERSION,
+                "voting_policy": _voting_policy(),
+                "instructions": "Заполните event_name после проверки события в Конфигураторе и повторите обновление.",
+                "analysis_summary": analysis_summary,
+                "events": unresolved,
+                "statistical_outliers": outliers,
+                "ignored_no_procedure_groups": ignored_groups,
+            },
+        )
+    else:
+        unresolved_path.unlink(missing_ok=True)
     accepted = sum(1 for mapping in event_map.values() if mapping.source == "statistics")
     return EventAnalysisResult(event_map, True, accepted, len(unresolved))
 
@@ -1549,12 +1561,28 @@ def event_mapping_for_source(
 ) -> tuple[EventAnalysisResult, dict[tuple[str, str], EventMapping]]:
     if ordinary_forms_dir is not None and not (ordinary_forms_dir / EVENT_MAP_FILE).is_file():
         raise FileNotFoundError(f"Ordinary event map was not found: {ordinary_forms_dir / EVENT_MAP_FILE}")
-    analysis = prepare_event_mapping(
-        state_root, scan_root, force_analysis=force_analysis, probe_paths=probe_paths,
-    )
     shared = load_event_map(shared_root) if shared_root and _event_paths(shared_root)[0].is_file() else {}
     explicit = load_event_map_file(ordinary_forms_dir / EVENT_MAP_FILE) if ordinary_forms_dir else {}
-    return analysis, {**shared, **analysis.event_map, **explicit}
+    analysis = prepare_event_mapping(
+        state_root, scan_root, force_analysis=force_analysis, probe_paths=probe_paths, known_mappings={**shared, **explicit},
+    )
+    mappings = {**shared, **analysis.event_map, **explicit}
+    if analysis.unresolved:
+        _, review_path = _event_paths(state_root)
+        review = json.loads(review_path.read_text(encoding="utf-8-sig"))
+        pending = [
+            entry for entry in review["events"]
+            if entry.get("mixed_semantics") or (entry.get("control_type"), entry.get("source_id")) not in mappings
+        ]
+        if len(pending) != len(review["events"]):
+            if pending:
+                review["events"] = pending
+                review["analysis_summary"]["unresolved_groups"] = len(pending)
+                _write_json_atomic(review_path, review)
+            else:
+                review_path.unlink()
+            analysis = EventAnalysisResult(analysis.event_map, analysis.rebuilt, analysis.accepted, len(pending))
+    return analysis, mappings
 
 
 def convert_tree(
@@ -1634,7 +1662,7 @@ def main() -> None:
                     "event_mappings": len(event_map),
                     "unresolved_events": analysis.unresolved,
                     "event_map": str(state_root / EVENT_DIRECTORY / EVENT_MAP_FILE),
-                    "review": str(state_root / EVENT_DIRECTORY / UNRESOLVED_EVENTS_FILE),
+                    "review": str(state_root / EVENT_DIRECTORY / UNRESOLVED_EVENTS_FILE) if analysis.unresolved else None,
                 },
                 ensure_ascii=False,
                 indent=2,
