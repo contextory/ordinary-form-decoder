@@ -2,7 +2,7 @@
 
 Ordinary forms live in `Form.bin`, while RLM needs their readable structure: controls, attributes, and links to handlers. This script extracts that structure into `Form.xml` and the form module into `Form/Module.bsl`. It leaves the source file untouched and cannot rebuild a binary form.
 
-Run it on one form or recursively over an export tree, including external processors and reports. No package installation is needed: use Python 3.10+ and keep `ordinary_form_rlm.py` next to `ordinary-form-events.json`. See the [detailed guide](README.html) (Russian).
+Run it on one form or recursively over an export tree, including external processors and reports. No package installation is needed: use Python 3.10+ and keep `ordinary_form_rlm.py` next to `ordinary-form-events.json`. See the [detailed guide](GUIDE.md) (Russian).
 
 If an event type cannot be identified, the XML still retains its known handler and marks the event as unknown. Explicit `CommandBar` actions, including those in nested groups, are matched to button names by UUID; built-in platform commands are not presented as BSL handlers.
 
