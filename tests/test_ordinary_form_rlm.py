@@ -84,8 +84,8 @@ class OrdinaryFormRlmTests(unittest.TestCase):
 		self.assertEqual(
 			[(item.name, item.handler, item.source_id) for item in commands],
 			[
-				("КоманднаяПанель.Пересчитать", "ПроизвольныйОбработчик", first_id),
-				("КоманднаяПанель.ВложеннаяКоманда", "МенюВложенноеНажатие", second_id),
+				("Пересчитать", "ПроизвольныйОбработчик", first_id),
+				("ВложеннаяКоманда", "МенюВложенноеНажатие", second_id),
 			],
 		)
 		with tempfile.TemporaryDirectory() as directory:
@@ -93,8 +93,8 @@ class OrdinaryFormRlmTests(unittest.TestCase):
 			root = ET.parse(Path(directory) / "Form.xml").getroot()
 			self.assertEqual(
 				[(item.get("name"), item.findtext("{*}Action")) for item in root.findall("{*}Commands/{*}Command")],
-				[("КоманднаяПанель.Пересчитать", "ПроизвольныйОбработчик"),
-				 ("КоманднаяПанель.ВложеннаяКоманда", "МенюВложенноеНажатие")],
+				[("Пересчитать", "ПроизвольныйОбработчик"),
+				 ("ВложеннаяКоманда", "МенюВложенноеНажатие")],
 			)
 			self.assertEqual(summary["commands"], 2)
 			self.assertEqual(summary["handlers"], 2)

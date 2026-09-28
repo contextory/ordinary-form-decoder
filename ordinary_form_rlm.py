@@ -544,7 +544,6 @@ def extract_command_bar_actions(form_root: object) -> list[CommandInfo]:
                 if isinstance(action_id, str) and isinstance(button, list) and len(button) > 1:
                     if isinstance(button[1], str) and button[1]:
                         names_by_action.setdefault(action_id, []).append(button[1])
-        bar_name = control_metadata_name(record)
         for action in items[5:action_end]:
             if not isinstance(action, list) or len(action) < 5 or not isinstance(action[1], str):
                 continue
@@ -555,8 +554,7 @@ def extract_command_bar_actions(form_root: object) -> list[CommandInfo]:
             if not isinstance(handler, str) or not handler or is_uuid(handler):
                 continue
             for button_name in dict.fromkeys(names_by_action.get(action[1], [handler])):
-                name = f"{bar_name}.{button_name}" if bar_name else button_name
-                commands.append(CommandInfo(name=name, handler=handler, source_id=action[1]))
+                commands.append(CommandInfo(name=button_name, handler=handler, source_id=action[1]))
     return commands
 
 
